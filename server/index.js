@@ -1,71 +1,101 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const Anthropic = require('@anthropic-ai/sdk');
+const { spawn } = require('child_process');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// Execute Claude Code command and return result
+app.post('/api/claude', async (req, res) => {
+  const { prompt, workingDir } = req.body;
 
-// Store conversation history per session (simple in-memory store)
-const conversations = new Map();
+  if (!prompt) {
+    return res.status(400).json({ error: 'Prompt is required' });
+  }
 
-app.post('/api/chat', async (req, res) => {
+  console.log(`\n--- Claude Code Request ---`);
+  console.log(`Prompt: ${prompt}`);
+  console.log(`Working Dir: ${workingDir || 'default'}`);
+
   try {
-    const { message, sessionId = 'default' } = req.body;
+    const cwd = workingDir || process.env.USERPROFILE || process.env.HOME;
+    const args = ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'json'];
 
-    if (!message) {
-      return res.status(400).json({ error: 'Message is required' });
-    }
+    console.log(`[spawn] Command: claude ${args.join(' ')}`);
+    console.log(`[spawn] CWD: ${cwd}`);
 
-    // Get or create conversation history
-    if (!conversations.has(sessionId)) {
-      conversations.set(sessionId, []);
-    }
-    const history = conversations.get(sessionId);
-
-    // Add user message to history
-    history.push({ role: 'user', content: message });
-
-    // Call Claude API
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 1024,
-      messages: history,
+    const proc = spawn('claude', args, {
+      cwd: cwd,
+      stdio: ['inherit', 'pipe', 'pipe'],  // Key fix: stdin must be 'inherit'
     });
 
-    const assistantMessage = response.content[0].text;
+    let stdout = '';
+    let stderr = '';
+    let responded = false;
 
-    // Add assistant response to history
-    history.push({ role: 'assistant', content: assistantMessage });
+    const timeout = setTimeout(() => {
+      if (!responded) {
+        responded = true;
+        proc.kill();
+        res.status(504).json({
+          error: 'Request timed out after 2 minutes',
+          response: stdout.trim(),
+          stderr: stderr.trim()
+        });
+      }
+    }, 120000);
 
-    // Keep only last 20 messages to prevent token overflow
-    if (history.length > 20) {
-      history.splice(0, history.length - 20);
-    }
-
-    res.json({
-      reply: assistantMessage,
-      sessionId
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
     });
+
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (!responded) {
+        responded = true;
+        clearTimeout(timeout);
+        console.log(`Exit code: ${code}`);
+        console.log(`Response length: ${stdout.length} chars`);
+
+        // Parse JSON output if possible
+        let response = stdout.trim();
+        try {
+          const parsed = JSON.parse(response);
+          response = parsed.result || parsed.content || response;
+        } catch (e) {
+          // Keep as plain text
+        }
+
+        res.json({
+          response: response,
+          stderr: stderr.trim(),
+          exitCode: code
+        });
+      }
+    });
+
+    proc.on('error', (err) => {
+      if (!responded) {
+        responded = true;
+        clearTimeout(timeout);
+        console.error('Spawn error:', err);
+        res.status(500).json({
+          error: `Failed to run Claude Code: ${err.message}`
+        });
+      }
+    });
+
   } catch (error) {
-    console.error('Error calling Claude API:', error);
+    console.error('Error:', error);
     res.status(500).json({
-      error: 'Failed to get response from Claude',
-      details: error.message
+      error: error.message
     });
   }
-});
-
-// Clear conversation history
-app.post('/api/clear', (req, res) => {
-  const { sessionId = 'default' } = req.body;
-  conversations.delete(sessionId);
-  res.json({ success: true });
 });
 
 // Health check
@@ -76,5 +106,6 @@ app.get('/api/health', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Send prompts to POST /api/claude`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
 });

@@ -1,98 +1,81 @@
-# Mobile Claude Chat App
+# Mobile Claude
 
-A React Native/Expo mobile app that connects to Claude AI through a local server on your home computer.
+A React Native/Expo mobile app that lets you run Claude Code commands from your phone.
 
 ## Architecture
 
 ```
-Phone App → Internet → ngrok/cloudflare → Your Computer → Claude API
+Phone App → Internet → ngrok/cloudflare → Your Computer → Claude Code CLI
 ```
 
-## Setup
+## Quick Start
 
-### 1. Server Setup (Your Home Computer)
+### 1. Server Setup
 
 ```bash
 cd server
-
-# Create .env file with your API key
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY from https://console.anthropic.com/
-
-# Install dependencies
 npm install
-
-# Start server
 npm start
 ```
 
-### 2. Expose Server to Internet
+### 2. Expose to Internet
 
-Option A - ngrok:
 ```bash
-# Install ngrok: https://ngrok.com/download
+# Option A: ngrok
 ngrok http 3000
-# Copy the https URL (e.g., https://abc123.ngrok-free.app)
-```
 
-Option B - Cloudflare Tunnel:
-```bash
-# Install cloudflared
+# Option B: Cloudflare Tunnel
 cloudflared tunnel --url http://localhost:3000
-# Copy the https URL
 ```
 
-### 3. Update App with Server URL
+### 3. Configure App
 
-Edit `app/App.tsx` line 16:
-```typescript
-const API_URL = 'https://your-ngrok-or-cloudflare-url';
-```
+Edit `app/App.tsx`:
+- Line 16: Set `API_URL` to your tunnel URL
+- Line 19: Set `DEFAULT_WORKING_DIR` to your projects directory
 
-### 4. Run the Mobile App
+### 4. Run Mobile App
 
 ```bash
 cd app
-
-# Install Expo CLI if needed
-npm install -g expo-cli
-
-# Start Expo
+npm install
 npx expo start
 ```
 
-Then:
-- **iOS**: Scan QR code with Camera app (or press `i` for simulator)
-- **Android**: Scan QR code with Expo Go app (or press `a` for emulator)
+Scan the QR code with Expo Go (Android) or Camera app (iOS).
 
-## Development
+## Local Network Development
 
-### Running locally (same network)
-If your phone and computer are on the same WiFi, you can use your computer's local IP:
+If your phone and computer are on the same WiFi:
 ```typescript
 const API_URL = 'http://192.168.1.xxx:3000';
 ```
 
-### Building for production
+## API Endpoints
+
+- `POST /api/claude` - Execute Claude Code command
+- `GET /api/health` - Health check
+
+## How It Works
+
+The server spawns Claude Code CLI for each request:
 ```bash
-cd app
-npx expo build:ios
-npx expo build:android
+claude -p "<prompt>" --dangerously-skip-permissions --output-format json
 ```
 
-## Costs
-
-- **Claude API**: Usage-based pricing at https://www.anthropic.com/pricing
-- **ngrok**: Free tier available, paid for persistent URLs
-- **Expo**: Free for development, EAS Build for production apps
+Each prompt is independent (no conversation history). The working directory is configurable per request.
 
 ## Troubleshooting
 
-### "Network request failed"
-- Check server is running: `curl http://localhost:3000/api/health`
-- Check ngrok/cloudflare tunnel is active
-- Verify URL in App.tsx matches tunnel URL
+**"Network request failed"**
+- Check server: `curl http://localhost:3000/api/health`
+- Verify tunnel is active
+- Confirm URL in App.tsx matches
 
-### "Failed to get response from Claude"
-- Check ANTHROPIC_API_KEY in server/.env
-- Verify API key has credits at console.anthropic.com
+**Request hangs indefinitely**
+- This is a known Node.js issue with Claude CLI
+- Ensure server uses `stdio: ['inherit', 'pipe', 'pipe']` in spawn call
+
+## License
+
+MIT

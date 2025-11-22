@@ -12,8 +12,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
-// Update this to your server URL (ngrok/cloudflare tunnel URL)
-const API_URL = 'http://localhost:3000';
+// Update this to your server URL
+const API_URL = 'http://192.168.0.114:3000';
+
+// Default working directory for Claude Code
+const DEFAULT_WORKING_DIR = 'C:\\Users\\wenzi_000\\projects-local';
 
 interface Message {
   id: string;
@@ -25,9 +28,10 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [workingDir, setWorkingDir] = useState(DEFAULT_WORKING_DIR);
   const flatListRef = useRef<FlatList>(null);
 
-  const sendMessage = async () => {
+  const sendPrompt = async () => {
     if (!inputText.trim() || isLoading) return;
 
     const userMessage: Message = {
@@ -41,24 +45,34 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/chat`, {
+      const response = await fetch(`${API_URL}/api/claude`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMessage.content }),
+        body: JSON.stringify({
+          prompt: userMessage.content,
+          workingDir: workingDir
+        }),
       });
 
       const data = await response.json();
 
+      let content = '';
       if (data.error) {
-        throw new Error(data.error);
+        content = `Error: ${data.error}`;
+      } else if (data.response) {
+        content = data.response;
+      } else if (data.stderr) {
+        content = `Error: ${data.stderr}`;
+      } else {
+        content = '(No response)';
       }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.reply,
+        content: content,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -66,7 +80,7 @@ export default function App() {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to connect to server'}`,
+        content: `Network error: ${error instanceof Error ? error.message : 'Failed to connect to server'}`,
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
@@ -74,16 +88,7 @@ export default function App() {
     }
   };
 
-  const clearChat = async () => {
-    try {
-      await fetch(`${API_URL}/api/clear`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-    } catch (e) {
-      // Ignore errors when clearing
-    }
+  const clearChat = () => {
     setMessages([]);
   };
 
@@ -99,6 +104,7 @@ export default function App() {
           styles.messageText,
           item.role === 'user' ? styles.userText : styles.assistantText,
         ]}
+        selectable
       >
         {item.content}
       </Text>
@@ -108,11 +114,21 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Claude Chat</Text>
+        <Text style={styles.headerTitle}>Claude Code</Text>
         <TouchableOpacity onPress={clearChat} style={styles.clearButton}>
           <Text style={styles.clearButtonText}>Clear</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        style={styles.workingDirContainer}
+        onPress={() => {
+          // Could add a modal to change this
+        }}
+      >
+        <Text style={styles.workingDirLabel}>Working Dir:</Text>
+        <Text style={styles.workingDirPath} numberOfLines={1}>{workingDir}</Text>
+      </TouchableOpacity>
 
       <FlatList
         ref={flatListRef}
@@ -127,8 +143,8 @@ export default function App() {
 
       {isLoading && (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#8B5CF6" />
-          <Text style={styles.loadingText}>Claude is thinking...</Text>
+          <ActivityIndicator size="small" color="#10B981" />
+          <Text style={styles.loadingText}>Claude is working...</Text>
         </View>
       )}
 
@@ -141,11 +157,11 @@ export default function App() {
             style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Ask Claude anything..."
-            placeholderTextColor="#9CA3AF"
+            placeholder="Ask Claude to do something..."
+            placeholderTextColor="#6B7280"
             multiline
-            maxLength={2000}
-            onSubmitEditing={sendMessage}
+            maxLength={4000}
+            onSubmitEditing={sendPrompt}
             blurOnSubmit={false}
           />
           <TouchableOpacity
@@ -153,7 +169,7 @@ export default function App() {
               styles.sendButton,
               (!inputText.trim() || isLoading) && styles.sendButtonDisabled,
             ]}
-            onPress={sendMessage}
+            onPress={sendPrompt}
             disabled={!inputText.trim() || isLoading}
           >
             <Text style={styles.sendButtonText}>Send</Text>
@@ -167,7 +183,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111827',
+    backgroundColor: '#0D1117',
   },
   header: {
     flexDirection: 'row',
@@ -175,19 +191,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#374151',
+    borderBottomColor: '#30363D',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#F9FAFB',
+    color: '#E6EDF3',
   },
   clearButton: {
     padding: 8,
   },
   clearButtonText: {
-    color: '#8B5CF6',
+    color: '#10B981',
     fontSize: 14,
+  },
+  workingDirContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#161B22',
+    borderBottomWidth: 1,
+    borderBottomColor: '#30363D',
+  },
+  workingDirLabel: {
+    color: '#8B949E',
+    fontSize: 12,
+    marginRight: 8,
+  },
+  workingDirPath: {
+    color: '#58A6FF',
+    fontSize: 12,
+    flex: 1,
   },
   messageList: {
     flex: 1,
@@ -197,30 +231,31 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   messageBubble: {
-    maxWidth: '80%',
+    maxWidth: '90%',
     padding: 12,
-    borderRadius: 16,
-    marginBottom: 8,
+    borderRadius: 12,
+    marginBottom: 12,
   },
   userBubble: {
-    backgroundColor: '#8B5CF6',
+    backgroundColor: '#238636',
     alignSelf: 'flex-end',
     borderBottomRightRadius: 4,
   },
   assistantBubble: {
-    backgroundColor: '#374151',
+    backgroundColor: '#21262D',
     alignSelf: 'flex-start',
     borderBottomLeftRadius: 4,
   },
   messageText: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   userText: {
     color: '#FFFFFF',
   },
   assistantText: {
-    color: '#F3F4F6',
+    color: '#E6EDF3',
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -230,39 +265,39 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginLeft: 8,
-    color: '#9CA3AF',
+    color: '#8B949E',
     fontSize: 14,
   },
   inputContainer: {
     flexDirection: 'row',
-    padding: 16,
+    padding: 12,
     borderTopWidth: 1,
-    borderTopColor: '#374151',
+    borderTopColor: '#30363D',
     alignItems: 'flex-end',
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#1F2937',
-    borderRadius: 20,
+    backgroundColor: '#161B22',
+    borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: '#F9FAFB',
-    maxHeight: 100,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#E6EDF3',
+    maxHeight: 120,
     marginRight: 8,
   },
   sendButton: {
-    backgroundColor: '#8B5CF6',
-    borderRadius: 20,
+    backgroundColor: '#238636',
+    borderRadius: 12,
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   sendButtonDisabled: {
-    backgroundColor: '#4B5563',
+    backgroundColor: '#21262D',
   },
   sendButtonText: {
     color: '#FFFFFF',
     fontWeight: '600',
-    fontSize: 16,
+    fontSize: 14,
   },
 });
